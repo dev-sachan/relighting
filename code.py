@@ -1,42 +1,41 @@
 # ============================================================
-# FACE 1 DATASET SCRIPT (OPTIMIZED VERSION)
-# 4 angles × 10 HDRIs per expression
-# Blender 4.x / 5.x
+# FACE DATASET — OPTIMIZED AI PIPELINE
+# Three-Point Lighting + Enhanced Skin + Better Framing
+# Blender 3.x / 4.x compatible
 # ============================================================
 
-import bpy, os, math, json, random
-from mathutils import Vector
+import bpy, os, math, random, json, time
+from mathutils import Vector, Euler
 
 # ---------------- PATHS ----------------
-FACE_FOLDER  = r"D:/dataset_photo/2"
-HDRI_FOLDER  = r"D:/hdri_library"
-OUTPUT_ROOT  = r"D:/renders_face2"
+FACE_FOLDER = r"D:/dataset_photo/2"
+HDRI_FOLDER = r"C:\Users\Vaibhav singh\Desktop\HDRI"
+OUTPUT_ROOT = r"D:/renders_face2_AI_final"
 
 # ---------------- SETTINGS ----------------
-ANGLES = [-45, -15, 15, 45]   # ONLY 4 angles
-MAX_HDRIS = 10               # ONLY 10 HDRIs
+ANGLES = [-30, 0, 30]
+MAX_HDRIS = 40
 RES = 512
-SAMPLES = 32
-CAMERA_FACTOR = 1.8
-# ----------------------------------------
+SAMPLES = 128
+CAMERA_FACTOR = 4.5
 
+# ---------------- SCENE ----------------
 scene = bpy.context.scene
 scene.render.engine = 'CYCLES'
 scene.render.resolution_x = RES
 scene.render.resolution_y = RES
 scene.cycles.samples = SAMPLES
 scene.cycles.use_denoising = True
-
-# SPEED OPTIMIZATIONS
-scene.render.use_persistent_data = True  # Cache scene data
-scene.cycles.device = 'GPU'  # Use GPU if available
-scene.cycles.use_adaptive_sampling = True  # Faster sampling
+scene.cycles.device = 'GPU'
+scene.cycles.use_adaptive_sampling = True
+scene.render.film_transparent = False
+scene.view_settings.exposure = -0.1
+scene.view_settings.gamma = 1.1
+scene.view_settings.look = 'AgX - Medium High Contrast'
 
 # ---------------- WORLD ----------------
-if scene.world is None:
-    scene.world = bpy.data.worlds.new("World")
-
-world = scene.world
+world = scene.world or bpy.data.worlds.new("World")
+scene.world = world
 world.use_nodes = True
 nodes = world.node_tree.nodes
 links = world.node_tree.links
@@ -52,138 +51,232 @@ links.new(tc.outputs["Generated"], mp.inputs["Vector"])
 links.new(mp.outputs["Vector"], et.inputs["Vector"])
 links.new(et.outputs["Color"], bg.inputs["Color"])
 links.new(bg.outputs["Background"], wo.inputs["Surface"])
-bg.inputs["Strength"].default_value = 1.1
+bg.inputs["Strength"].default_value = 0.7
 
-# load & limit HDRIs
-HDRIS_ALL = [
-    os.path.join(HDRI_FOLDER, f)
-    for f in os.listdir(HDRI_FOLDER)
-    if f.lower().endswith((".hdr", ".exr"))
-]
-HDRIS = random.sample(HDRIS_ALL, min(MAX_HDRIS, len(HDRIS_ALL)))
-
-# Pre-load all HDRIs to avoid repeated disk access
-HDRI_IMAGES = [bpy.data.images.load(hdri, check_existing=True) for hdri in HDRIS]
+# ---------------- HDRIs ----------------
+HDRIS = [os.path.join(HDRI_FOLDER, f) for f in os.listdir(HDRI_FOLDER)
+         if f.lower().endswith((".hdr", ".exr"))]
+HDRIS = random.sample(HDRIS, min(MAX_HDRIS, len(HDRIS)))
+HDRI_IMAGES = [bpy.data.images.load(h, check_existing=True) for h in HDRIS]
+HDRI_ROT = [random.uniform(-math.pi, math.pi) for _ in HDRI_IMAGES]
 
 # ---------------- CAMERA ----------------
-def ensure_camera():
-    if scene.camera:
-        return scene.camera
+if not scene.camera:
     bpy.ops.object.camera_add()
     scene.camera = bpy.context.active_object
-    return scene.camera
+cam = scene.camera
+cam.data.lens = 100
+cam.data.dof.use_dof = True
+cam.data.dof.aperture_fstop = 2.2
+cam.data.dof.aperture_blades = 6
 
-cam = ensure_camera()
+# ---------------- LIGHTS ----------------
+def ensure_light(name, energy, size):
+    if name not in bpy.data.objects:
+        bpy.ops.object.light_add(type='AREA')
+        l = bpy.context.active_object
+        l.name = name
+        l.data.energy = energy
+        l.data.size = size
+    return bpy.data.objects[name]
 
-def look_at(obj, target=Vector((0,0,0))):
-    direction = target - obj.location
-    obj.rotation_euler = direction.to_track_quat('-Z','Y').to_euler()
+key = ensure_light("KeyLight", 40, 4)
+fill = ensure_light("FillLight", 15, 3)
+rim = ensure_light("RimLight", 25, 2)
 
-# ---------------- SKIN MATERIAL ----------------
+# ---------------- REALISTIC SKIN SHADER ----------------
 def apply_skin(objs):
-    mat = bpy.data.materials.get("Skin_Test")
-    if mat is None:
-        mat = bpy.data.materials.new("Skin_Test")
+    mat = bpy.data.materials.get("SkinAI")
+    if not mat:
+        mat = bpy.data.materials.new("SkinAI")
         mat.use_nodes = True
 
-        nodes = mat.node_tree.nodes
-        bsdf = nodes.get("Principled BSDF")
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
 
-        # Base skin color
-        if "Base Color" in bsdf.inputs:
-            bsdf.inputs["Base Color"].default_value = (0.68, 0.52, 0.45, 1)
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    out = nodes.new("ShaderNodeOutputMaterial")
 
-        # Roughness
-        if "Roughness" in bsdf.inputs:
-            bsdf.inputs["Roughness"].default_value = 0.55
+    # ==== REALISTIC SKIN COLOR with subtle variation ====
+    coord = nodes.new("ShaderNodeTexCoord")
+    
+    # Color variation noise
+    color_noise = nodes.new("ShaderNodeTexNoise")
+    color_noise.inputs["Scale"].default_value = 25
+    color_noise.inputs["Detail"].default_value = 3
+    color_noise.inputs["Roughness"].default_value = 0.6
+    
+    # Color ramp for skin tone variation
+    color_ramp = nodes.new("ShaderNodeValToRGB")
+    color_ramp.color_ramp.elements[0].position = 0.45
+    color_ramp.color_ramp.elements[0].color = (0.82, 0.58, 0.48, 1)  # Darker/redder
+    color_ramp.color_ramp.elements[1].position = 0.55
+    color_ramp.color_ramp.elements[1].color = (0.88, 0.68, 0.58, 1)  # Lighter/yellower
+    
+    links.new(coord.outputs["Object"], color_noise.inputs["Vector"])
+    links.new(color_noise.outputs["Fac"], color_ramp.inputs["Fac"])
+    links.new(color_ramp.outputs["Color"], bsdf.inputs["Base Color"])
 
-        # Specular (Blender version safe)
-        if "Specular IOR Level" in bsdf.inputs:
-            bsdf.inputs["Specular IOR Level"].default_value = 0.25
-        elif "Specular" in bsdf.inputs:
-            bsdf.inputs["Specular"].default_value = 0.25
+    # ==== REALISTIC ROUGHNESS variation ====
+    rough_noise = nodes.new("ShaderNodeTexNoise")
+    rough_noise.inputs["Scale"].default_value = 100
+    rough_noise.inputs["Detail"].default_value = 4
+    
+    rough_ramp = nodes.new("ShaderNodeValToRGB")
+    rough_ramp.color_ramp.elements[0].position = 0.4
+    rough_ramp.color_ramp.elements[0].color = (0.3, 0.3, 0.3, 1)  # Smoother areas
+    rough_ramp.color_ramp.elements[1].position = 0.6
+    rough_ramp.color_ramp.elements[1].color = (0.5, 0.5, 0.5, 1)  # Rougher areas
+    
+    links.new(coord.outputs["Object"], rough_noise.inputs["Vector"])
+    links.new(rough_noise.outputs["Fac"], rough_ramp.inputs["Fac"])
+    links.new(rough_ramp.outputs["Color"], bsdf.inputs["Roughness"])
 
-        # Subsurface (Blender version safe)
-        if "Subsurface Weight" in bsdf.inputs:
-            bsdf.inputs["Subsurface Weight"].default_value = 0.18
-            if "Subsurface Color" in bsdf.inputs:
-                bsdf.inputs["Subsurface Color"].default_value = (0.85, 0.35, 0.30, 1)
-        elif "Subsurface" in bsdf.inputs:
-            bsdf.inputs["Subsurface"].default_value = 0.18
-            if "Subsurface Color" in bsdf.inputs:
-                bsdf.inputs["Subsurface Color"].default_value = (0.85, 0.35, 0.30, 1)
+    # ==== SPECULAR (skin shininess) ====
+    if "Specular IOR Level" in bsdf.inputs:
+        bsdf.inputs["Specular IOR Level"].default_value = 0.45
+    else:
+        bsdf.inputs["Specular"].default_value = 0.45
+
+    # ==== ENHANCED SUBSURFACE SCATTERING ====
+    if "Subsurface Weight" in bsdf.inputs:
+        bsdf.inputs["Subsurface Weight"].default_value = 0.35  # Increased for more realism
+        bsdf.inputs["Subsurface Scale"].default_value = 0.05  # Proper skin scale
+        if "Subsurface Radius" in bsdf.inputs:
+            bsdf.inputs["Subsurface Radius"].default_value = (1.2, 0.5, 0.3)  # R, G, B scattering
+        if "Subsurface IOR" in bsdf.inputs:
+            bsdf.inputs["Subsurface IOR"].default_value = 1.4  # Skin IOR
+    else:
+        bsdf.inputs["Subsurface"].default_value = 0.35
+        if "Subsurface Radius" in bsdf.inputs:
+            bsdf.inputs["Subsurface Radius"].default_value = (1.2, 0.5, 0.3)
+        if "Subsurface Color" in bsdf.inputs:
+            bsdf.inputs["Subsurface Color"].default_value = (0.9, 0.5, 0.4, 1)
+
+    # ==== REALISTIC SKIN TEXTURE (pores + wrinkles) ====
+    # Large features (wrinkles, subtle contours)
+    noise_large = nodes.new("ShaderNodeTexNoise")
+    noise_large.inputs["Scale"].default_value = 80
+    noise_large.inputs["Detail"].default_value = 3
+    noise_large.inputs["Roughness"].default_value = 0.5
+    links.new(coord.outputs["Object"], noise_large.inputs["Vector"])
+    
+    # Medium features (skin texture)
+    noise_medium = nodes.new("ShaderNodeTexNoise")
+    noise_medium.inputs["Scale"].default_value = 250
+    noise_medium.inputs["Detail"].default_value = 5
+    noise_medium.inputs["Roughness"].default_value = 0.6
+    links.new(coord.outputs["Object"], noise_medium.inputs["Vector"])
+    
+    # Fine features (pores)
+    noise_fine = nodes.new("ShaderNodeTexNoise")
+    noise_fine.inputs["Scale"].default_value = 1200
+    noise_fine.inputs["Detail"].default_value = 2
+    links.new(coord.outputs["Object"], noise_fine.inputs["Vector"])
+    
+    # Mix large + medium
+    mix1 = nodes.new("ShaderNodeMix")
+    mix1.data_type = 'FLOAT'
+    mix1.inputs[0].default_value = 0.6
+    links.new(noise_large.outputs["Fac"], mix1.inputs[2])
+    links.new(noise_medium.outputs["Fac"], mix1.inputs[3])
+    
+    # Add fine details
+    mix2 = nodes.new("ShaderNodeMix")
+    mix2.data_type = 'FLOAT'
+    mix2.inputs[0].default_value = 0.3
+    links.new(mix1.outputs[1], mix2.inputs[2])
+    links.new(noise_fine.outputs["Fac"], mix2.inputs[3])
+    
+    # Apply bump
+    bump = nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.2
+    bump.inputs["Distance"].default_value = 0.1
+    links.new(mix2.outputs[1], bump.inputs["Height"])
+    links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+
+    links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
 
     for o in objs:
         o.data.materials.clear()
         o.data.materials.append(mat)
 
+    return mat
 
-# ---------------- EXPRESSIONS ----------------
-expressions = [f for f in os.listdir(FACE_FOLDER) if f.endswith(".obj")]
+# ---- IMPROVEMENT 1: METADATA LIST ----
+metadata = []
 
-for expr in expressions:
-    expr_name = os.path.splitext(expr)[0]
-    expr_out = os.path.join(OUTPUT_ROOT, expr_name)
-    os.makedirs(expr_out, exist_ok=True)
+# ---------------- RENDER ----------------
+for file in os.listdir(FACE_FOLDER):
+    if not file.endswith(".obj"):
+        continue
 
-    print("Rendering:", expr_name)
-
-    # clear old mesh
     bpy.ops.object.select_all(action='DESELECT')
     for o in bpy.data.objects:
         if o.type == 'MESH':
             o.select_set(True)
     bpy.ops.object.delete()
 
-    # import face
-    bpy.ops.wm.obj_import(filepath=os.path.join(FACE_FOLDER, expr))
-    objs = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+    bpy.ops.wm.obj_import(filepath=os.path.join(FACE_FOLDER, file))
+    objs = [o for o in bpy.context.selected_objects if o.type == "MESH"]
 
-    for o in objs:
-        o.location = (0,0,0)
-        o.rotation_euler = (0,0,0)
-        o.scale = (1,1,1)
+    skin_mat = apply_skin(objs)
 
-    # center mesh
     pts = [o.matrix_world @ v.co for o in objs for v in o.data.vertices]
-    min_v = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
-    max_v = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
-    center = (min_v + max_v) / 2
-    size = max(max_v - min_v)
+    size = max(pts) - min(pts)
+    cam_dist = size.length * CAMERA_FACTOR
+    
+    # ---- IMPROVEMENT 4: Calculate face center for adaptive lighting ----
+    face_center = sum(pts, Vector()) / len(pts)
+    
+    # Position lights relative to face
+    key.location = face_center + Vector((2, -3, 2))
+    key.rotation_euler = Euler((math.radians(60), 0, math.radians(30)), 'XYZ')
+    
+    fill.location = face_center + Vector((-2, -2, 1))
+    fill.rotation_euler = Euler((math.radians(45), 0, math.radians(-30)), 'XYZ')
+    
+    rim.location = face_center + Vector((0, 2, 1.5))
+    rim.rotation_euler = Euler((math.radians(120), 0, 0), 'XYZ')
+    # ---- END IMPROVEMENT 4 ----
 
-    for o in objs:
-        o.location -= center
-
-    apply_skin(objs)
-
-    cam_dist = size * CAMERA_FACTOR
-    metadata = []
-    img_idx = 0
-
-    for idx, hdri_img in enumerate(HDRI_IMAGES):
-        et.image = hdri_img  # Use pre-loaded image
+    idx = 0
+    for h, hdri in enumerate(HDRI_IMAGES):
+        et.image = hdri
+        mp.inputs["Rotation"].default_value[2] = HDRI_ROT[h]
 
         for ang in ANGLES:
-            cam.location = Vector((
-                cam_dist * math.sin(math.radians(ang)),
-                0,
-                cam_dist * math.cos(math.radians(ang))
-            ))
-            look_at(cam)
+            ang_rad = math.radians(ang)
+            cam.location = Vector((cam_dist * math.sin(ang_rad),
+                                   -cam_dist * math.cos(ang_rad),
+                                   size.length * 0.15))
+            cam.rotation_euler = (math.radians(90), 0, math.radians(ang))
 
-            fname = f"img_{img_idx:03d}.png"
-            scene.render.filepath = os.path.join(expr_out, fname)
+            # ---- IMPROVEMENT 5: Better DOF focus ----
+            cam.data.dof.focus_distance = (cam.location - face_center).length
+            # ---- END IMPROVEMENT 5 ----
+
+            # ---- IMPROVEMENT 1: Log metadata ----
+            meta_entry = {
+                "image": f"img_{idx:04d}.png",
+                "model": file,
+                "hdri": os.path.basename(HDRIS[h]),
+                "hdri_rotation": float(HDRI_ROT[h]),
+                "angle": ang,
+                "camera_distance": float(cam_dist),
+                "camera_location": [float(cam.location.x), float(cam.location.y), float(cam.location.z)],
+                "timestamp": time.time()
+            }
+            metadata.append(meta_entry)
+            # ---- END IMPROVEMENT 1 ----
+
+            scene.render.filepath = os.path.join(OUTPUT_ROOT, f"img_{idx:04d}.png")
             bpy.ops.render.render(write_still=True)
+            idx += 1
 
-            metadata.append({
-                "file": fname,
-                "angle_deg": ang,
-                "hdri": os.path.basename(HDRIS[idx])
-            })
+# ---- IMPROVEMENT 1: Save metadata ----
+with open(os.path.join(OUTPUT_ROOT, "metadata.json"), "w") as f:
+    json.dump(metadata, f, indent=2)
 
-            img_idx += 1
-
-    with open(os.path.join(expr_out, "metadata.json"), "w") as f:
-        json.dump(metadata, f, indent=2)
-
-print("✅ FACE 1 TEST DATASET COMPLETE") 
+print(f"✅ Script complete! Rendered {len(metadata)} images with metadata")
