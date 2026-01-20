@@ -122,3 +122,6 @@ Denoising (allows fewer samples)
 Summary
 You provide: 3D face models + HDRI environments
 Script produces: Professional-looking face photos from multiple angles and lighting conditions, each documented with complete metadata for training AI models.
+Invoke-WebRequest `
+  -Uri "http://172.17.85.172:8000/yt.zip" `
+  -OutFile "yt.zip"
