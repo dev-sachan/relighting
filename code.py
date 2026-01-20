@@ -1,8 +1,8 @@
-import bpy, os, math, random, json, time
-from mathutils import Vector, Euler
+import bpy, os, math, random, json
+from mathutils import Vector
 
-# ---------------- PATHS ----------------
-FACE_FOLDER = r"D:/dataset_photo/2"
+# ---------------- ROOT PATHS ----------------
+FACE_ROOT_INPUT = r"D:/dataset_photo"          # contains 20 folders
 HDRI_FOLDER = r"C:\Users\Vaibhav singh\Desktop\HDRI"
 OUTPUT_ROOT = r"D:/renders_face2_AI_final"
 
@@ -53,6 +53,8 @@ HDRIS = [os.path.join(HDRI_FOLDER, f) for f in os.listdir(HDRI_FOLDER)
 HDRIS = random.sample(HDRIS, min(MAX_HDRIS, len(HDRIS)))
 HDRI_IMAGES = [bpy.data.images.load(h, check_existing=True) for h in HDRIS]
 HDRI_ROT = [random.uniform(-math.pi, math.pi) for _ in HDRI_IMAGES]
+
+MAX_IMAGES_PER_EXPRESSION = len(HDRI_IMAGES) * len(ANGLES)
 
 # ---------------- CAMERA ----------------
 if not scene.camera:
@@ -110,105 +112,95 @@ def apply_skin(objs):
         o.data.materials.clear()
         o.data.materials.append(mat)
 
-# ---------------- RENDER ----------------
-FACE_NAME = os.path.basename(FACE_FOLDER)
-FACE_ROOT = os.path.join(OUTPUT_ROOT, f"face_{FACE_NAME}")
-os.makedirs(FACE_ROOT, exist_ok=True)
-
-MAX_IMAGES_PER_EXPRESSION = len(HDRI_IMAGES) * len(ANGLES)
-
-for file in os.listdir(FACE_FOLDER):
-    if not file.endswith(".obj"):
+# ================== MAIN LOOP ==================
+for face_id in sorted(os.listdir(FACE_ROOT_INPUT)):
+    FACE_FOLDER = os.path.join(FACE_ROOT_INPUT, face_id)
+    if not os.path.isdir(FACE_FOLDER):
         continue
 
-    expression_name = os.path.splitext(file)[0]
-    expression_folder = os.path.join(FACE_ROOT, expression_name)
-    os.makedirs(expression_folder, exist_ok=True)
+    print(f"\n🔥 Processing face folder: {face_id}")
 
-    metadata_path = os.path.join(expression_folder, "metadata.json")
+    FACE_OUTPUT_ROOT = os.path.join(OUTPUT_ROOT, f"face_{face_id}")
+    os.makedirs(FACE_OUTPUT_ROOT, exist_ok=True)
 
-    # Load metadata if exists
-    if os.path.exists(metadata_path):
-        with open(metadata_path, "r") as f:
-            metadata = json.load(f)
-    else:
-        metadata = []
+    for file in os.listdir(FACE_FOLDER):
+        if not file.endswith(".obj"):
+            continue
 
-    # Count actual existing images
-    existing = [f for f in os.listdir(expression_folder) if f.lower().endswith(".png")]
+        expression_name = os.path.splitext(file)[0]
+        expression_folder = os.path.join(FACE_OUTPUT_ROOT, expression_name)
+        os.makedirs(expression_folder, exist_ok=True)
 
-    if len(existing) >= MAX_IMAGES_PER_EXPRESSION:
-        print(f"Skipping {expression_name} — already complete ({len(existing)}/{MAX_IMAGES_PER_EXPRESSION})")
-        continue
+        metadata_path = os.path.join(expression_folder, "metadata.json")
+        metadata = json.load(open(metadata_path)) if os.path.exists(metadata_path) else []
 
-    # Find next safe index
-    existing_ids = []
-    for f in existing:
-        try:
-            existing_ids.append(int(f.split("_")[1].split(".")[0]))
-        except:
-            pass
+        existing = [f for f in os.listdir(expression_folder) if f.endswith(".png")]
+        if len(existing) >= MAX_IMAGES_PER_EXPRESSION:
+            print(f"✔ {expression_name} complete")
+            continue
 
-    idx = max(existing_ids) + 1 if existing_ids else 0
+        ids = []
+        for f in existing:
+            try:
+                ids.append(int(f.split("_")[1].split(".")[0]))
+            except:
+                pass
+        idx = max(ids) + 1 if ids else 0
 
-    # Clear meshes
-    bpy.ops.object.select_all(action='DESELECT')
-    for o in bpy.data.objects:
-        if o.type == 'MESH':
-            o.select_set(True)
-    bpy.ops.object.delete()
+        bpy.ops.object.select_all(action='DESELECT')
+        for o in bpy.data.objects:
+            if o.type == 'MESH':
+                o.select_set(True)
+        bpy.ops.object.delete()
 
-    bpy.ops.wm.obj_import(filepath=os.path.join(FACE_FOLDER, file))
-    objs = [o for o in bpy.context.selected_objects if o.type == "MESH"]
-    apply_skin(objs)
+        bpy.ops.wm.obj_import(filepath=os.path.join(FACE_FOLDER, file))
+        objs = [o for o in bpy.context.selected_objects if o.type == "MESH"]
+        apply_skin(objs)
 
-    pts = [o.matrix_world @ v.co for o in objs for v in o.data.vertices]
-    size = max(pts) - min(pts)
-    cam_dist = size.length * CAMERA_FACTOR
-    face_center = sum(pts, Vector()) / len(pts)
+        pts = [o.matrix_world @ v.co for o in objs for v in o.data.vertices]
+        size = max(pts) - min(pts)
+        cam_dist = size.length * CAMERA_FACTOR
+        face_center = sum(pts, Vector()) / len(pts)
 
-    key.location = face_center + Vector((2, -3, 2))
-    fill.location = face_center + Vector((-2, -2, 1))
-    rim.location = face_center + Vector((0, 2, 1.5))
+        key.location = face_center + Vector((2, -3, 2))
+        fill.location = face_center + Vector((-2, -2, 1))
+        rim.location = face_center + Vector((0, 2, 1.5))
 
-    for h, hdri in enumerate(HDRI_IMAGES):
-        et.image = hdri
-        mp.inputs["Rotation"].default_value[2] = HDRI_ROT[h]
+        for h, hdri in enumerate(HDRI_IMAGES):
+            et.image = hdri
+            mp.inputs["Rotation"].default_value[2] = HDRI_ROT[h]
 
-        for ang in ANGLES:
+            for ang in ANGLES:
+                if idx >= MAX_IMAGES_PER_EXPRESSION:
+                    break
 
-            if idx >= MAX_IMAGES_PER_EXPRESSION:
-                break
+                img_name = f"img_{idx:04d}.png"
+                img_path = os.path.join(expression_folder, img_name)
 
-            img_name = f"img_{idx:04d}.png"
-            img_path = os.path.join(expression_folder, img_name)
+                if os.path.exists(img_path):
+                    idx += 1
+                    continue
 
-            if os.path.exists(img_path):
+                ang_rad = math.radians(ang)
+                cam.location = Vector((cam_dist * math.sin(ang_rad),
+                                       -cam_dist * math.cos(ang_rad),
+                                       size.length * 0.15))
+                cam.rotation_euler = (math.radians(90), 0, math.radians(ang))
+                cam.data.dof.focus_distance = (cam.location - face_center).length
+
+                scene.render.filepath = img_path
+                bpy.ops.render.render(write_still=True)
+
+                metadata.append({
+                    "image": img_name,
+                    "model": file,
+                    "expression": expression_name,
+                    "hdri": os.path.basename(HDRIS[h]),
+                    "angle": ang,
+                    "camera_distance": float(cam_dist)
+                })
+
+                json.dump(metadata, open(metadata_path, "w"), indent=2)
                 idx += 1
-                continue
 
-            ang_rad = math.radians(ang)
-            cam.location = Vector((cam_dist * math.sin(ang_rad),
-                                   -cam_dist * math.cos(ang_rad),
-                                   size.length * 0.15))
-            cam.rotation_euler = (math.radians(90), 0, math.radians(ang))
-            cam.data.dof.focus_distance = (cam.location - face_center).length
-
-            scene.render.filepath = img_path
-            bpy.ops.render.render(write_still=True)
-
-            metadata.append({
-                "image": img_name,
-                "model": file,
-                "expression": expression_name,
-                "hdri": os.path.basename(HDRIS[h]),
-                "angle": ang,
-                "camera_distance": float(cam_dist)
-            })
-
-            with open(metadata_path, "w") as f:
-                json.dump(metadata, f, indent=2)
-
-            idx += 1
-
-print("✅ Crash-safe render complete — no over-generation possible")
+print("\n✅ ALL 20 FOLDERS RENDERED — crash-safe & capped")
