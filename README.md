@@ -126,4 +126,6 @@ Invoke-WebRequest `
   -Uri "http://172.17.85.172:8000/yt.zip" `
   -OutFile "yt.zip"
   Invoke-WebRequest http://172.17.83.41:8000/hdri1.zip -OutFile hdri1.zip
+  Invoke-WebRequest "http://172.17.83.41:8000/100-500%2B.zip" -OutFile "100-500+.zip"
+
 
