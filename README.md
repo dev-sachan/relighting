@@ -125,3 +125,5 @@ Script produces: Professional-looking face photos from multiple angles and light
 Invoke-WebRequest `
   -Uri "http://172.17.85.172:8000/yt.zip" `
   -OutFile "yt.zip"
+  Invoke-WebRequest http://172.17.83.41:8000/hdri1.zip -OutFile hdri1.zip
+
