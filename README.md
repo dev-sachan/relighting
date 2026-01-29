@@ -127,5 +127,6 @@ Invoke-WebRequest `
   -OutFile "yt.zip"
   Invoke-WebRequest http://172.17.83.41:8000/hdri1.zip -OutFile hdri1.zip
   Invoke-WebRequest "http://172.17.83.41:8000/100-500%2B.zip" -OutFile "100-500+.zip"
+  "C:\Program Files\Blender Foundation\Blender 5.0\blender.exe" --background --python "C:\Users\Vaibhav singh\Desktop\blender\render_faces_WORKING.py"
 
 
