@@ -90,6 +90,7 @@ def add_skin_material(obj):
 
 def normalize_face():
     meshes = [o for o in bpy.context.scene.objects if o.type == "MESH"]
+
     for obj in meshes:
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
@@ -98,6 +99,7 @@ def normalize_face():
     verts = [obj.matrix_world @ v.co for obj in meshes for v in obj.data.vertices]
     min_v = Vector((min(v.x for v in verts), min(v.y for v in verts), min(v.z for v in verts)))
     max_v = Vector((max(v.x for v in verts), max(v.y for v in verts), max(v.z for v in verts)))
+
     center = (min_v + max_v) / 2
     size = max(max_v - min_v)
     scale = 2.0 / size
@@ -162,22 +164,21 @@ for face_id in os.listdir(FACE_ROOT_INPUT):
         else:
             metadata = []
 
-        already_done = len(metadata)
-        if already_done >= TOTAL_IMAGES_PER_FACE:
+        if len(metadata) >= TOTAL_IMAGES_PER_FACE:
             print("  ✅ Already complete, skipping")
             continue
 
         random.seed(face_id)
         selected_hdris = random.sample(HDRIS, min(MAX_HDRI_PER_FACE, len(HDRIS)))
 
-        img_index = already_done
+        img_index = len(metadata)
 
         for hdri_idx, hdri in enumerate(selected_hdris):
             if img_index >= TOTAL_IMAGES_PER_FACE:
                 break
 
             env.image = hdri
-            hdri_name = os.path.basename(hdri.filepath)
+            hdri_name = hdri.name  # ✅ CORRECT FIX
 
             for ang in ANGLES:
                 if img_index >= TOTAL_IMAGES_PER_FACE:
