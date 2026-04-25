@@ -38,7 +38,7 @@
 <div align="center">
   <img src="highlight_grid_01.png" width="100%"/>
   <br><br>
-  <img src="assets/highlight_grid_02.png" width="100%"/>
+  <img src="highlight_grid_02.png" width="100%"/>
   <br><br>
   <img src="assets/sample_final.png" width="100%"/>
   <br>
