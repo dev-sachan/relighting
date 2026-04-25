@@ -38,9 +38,11 @@
 <div align="center">
   <img src="highlight_grid_01.png" width="100%"/>
   <br><br>
-  <img src="highlight_grid_02.png" width="100%"/>
+  <img src="assets/highlight_grid_02.png" width="100%"/>
+  <br><br>
+  <img src="assets/sample_final.png" width="100%"/>
   <br>
-  <em>Same face — completely different HDRI environments. Identity preserved throughout.</em>
+  <em>Same face — completely different HDRI environments · Training sample grid step 500k · All 3 subjects</em>
 </div>
 
 ---
