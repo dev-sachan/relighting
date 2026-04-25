@@ -36,9 +36,9 @@
 ## 📸 Results
 
 <div align="center">
-  <img src="results/results1.png" width="100%"/>
+  <img src="highlight_grid_01.png" width="100%"/>
   <br><br>
-  <img src="results/result2.png" width="100%"/>
+  <img src="highlight_grid_02.png" width="100%"/>
   <br>
   <em>Same face — completely different HDRI environments. Identity preserved throughout.</em>
 </div>
